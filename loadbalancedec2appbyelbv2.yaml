@@ -1,0 +1,128 @@
+---
+AWSTemplateFormatVersion: 2010-09-09
+Parameters:
+  myVpcId:
+    Type: String
+    Description: VPC ID
+    Default: vpc-11111111
+  Subnets:
+    Type: CommaDelimitedList
+    Description: Subnets
+    Default: subnet-ffffffff,subnet-cccccccc,subnet-aaaaaaaa
+  myKeyName:
+    Type: String
+    Description: EC2 Key Pair
+    Default: kkkk
+  LatestAmiId:
+    Description: Region specific image from the Parameter Store
+    Type: 'AWS::SSM::Parameter::Value<AWS::EC2::Image::Id>'
+    Default: '/aws/service/ami-amazon-linux-latest/amzn2-ami-hvm-x86_64-gp2'
+  InstanceType:
+    Description: Amazon EC2 instance type for the instances
+    Type: String
+    AllowedValues:
+      - t3.micro
+      - t3.small
+      - t3.medium
+    Default: t3.micro
+Resources:
+  InstanceSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+        GroupDescription: Allow http to client host
+        VpcId:
+          Ref: myVpcId
+        SecurityGroupIngress:
+        - IpProtocol: tcp
+          FromPort: 80
+          ToPort: 80
+          CidrIp: 0.0.0.0/0
+        - IpProtocol: tcp
+          FromPort: 22
+          ToPort: 22
+          CidrIp: 0.0.0.0/0
+
+  LoadBalancerSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+        GroupDescription: Allow http to client host
+        VpcId:
+          Ref: myVpcId
+        SecurityGroupIngress:
+        - IpProtocol: tcp
+          FromPort: 8080
+          ToPort: 8080
+          CidrIp: 0.0.0.0/0
+
+  myLaunchConfig: 
+    Type: AWS::AutoScaling::LaunchConfiguration
+    Properties:
+      ImageId: !Ref LatestAmiId
+      KeyName: !Ref myKeyName
+      UserData:
+        Fn::Base64: !Sub |
+          #!/bin/bash
+          yum update -y
+          touch /tmp/hello
+          yum install -y httpd
+          systemctl start httpd
+          systemctl enable httpd
+      SecurityGroups: 
+        - Ref: "InstanceSecurityGroup"
+      InstanceType: 
+        Ref: "InstanceType"
+      BlockDeviceMappings: 
+        - DeviceName: /dev/sda1
+          Ebs: 
+            VolumeSize: 8
+            VolumeType: "gp3"
+  
+  myLoadBalancer:
+    Type: AWS::ElasticLoadBalancingV2::LoadBalancer
+    Properties:
+      Subnets: !Ref Subnets
+      SecurityGroups:
+        - Ref: "LoadBalancerSecurityGroup"
+      Scheme: internet-facing
+      Type: application
+
+  myTargetGroup:
+    Type: AWS::ElasticLoadBalancingV2::TargetGroup
+    Properties:
+      HealthCheckIntervalSeconds: 20
+      HealthCheckPath: /
+      HealthCheckPort: 80
+      HealthCheckProtocol: HTTP
+      HealthCheckTimeoutSeconds: 5
+      HealthyThresholdCount: 5
+      Matcher:
+        HttpCode: 200
+      Protocol: HTTP
+      Port: 80
+      UnhealthyThresholdCount: 2
+      VpcId: !Ref myVpcId
+
+  
+  myListener:
+    Type: AWS::ElasticLoadBalancingV2::Listener
+    Properties:
+      Port: 8080
+      Protocol: HTTP
+      DefaultActions:
+        - Type: "forward"
+          TargetGroupArn:
+            Ref: "myTargetGroup"
+      LoadBalancerArn:
+        Ref: "myLoadBalancer"
+
+  myAutoScalingGroup:
+    Type: AWS::AutoScaling::AutoScalingGroup
+    Properties:
+      DesiredCapacity: 1
+      LaunchConfigurationName:
+        Ref: "myLaunchConfig"
+      MinSize: 0
+      MaxSize: 1
+      VPCZoneIdentifier: !Ref Subnets
+      TargetGroupARNs: 
+        - !Ref myTargetGroup
