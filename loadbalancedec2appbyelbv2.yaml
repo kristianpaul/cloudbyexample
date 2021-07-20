@@ -34,8 +34,8 @@ Resources:
           Ref: myVpcId
         SecurityGroupIngress:
         - IpProtocol: tcp
-          FromPort: 80
-          ToPort: 80
+          FromPort: 8080
+          ToPort: 8080
           CidrIp: 0.0.0.0/0
         - IpProtocol: tcp
           FromPort: 22
@@ -50,8 +50,8 @@ Resources:
           Ref: myVpcId
         SecurityGroupIngress:
         - IpProtocol: tcp
-          FromPort: 8080
-          ToPort: 8080
+          FromPort: 8000
+          ToPort: 8000
           CidrIp: 0.0.0.0/0
 
   myLaunchConfig: 
@@ -64,9 +64,6 @@ Resources:
           #!/bin/bash
           yum update -y
           touch /tmp/hello
-          yum install -y httpd
-          systemctl start httpd
-          systemctl enable httpd
       SecurityGroups: 
         - Ref: "InstanceSecurityGroup"
       InstanceType: 
@@ -90,23 +87,22 @@ Resources:
     Type: AWS::ElasticLoadBalancingV2::TargetGroup
     Properties:
       HealthCheckIntervalSeconds: 20
-      HealthCheckPath: /
-      HealthCheckPort: 80
+      HealthCheckPath: /health
+      HealthCheckPort: 8080
       HealthCheckProtocol: HTTP
       HealthCheckTimeoutSeconds: 5
       HealthyThresholdCount: 5
       Matcher:
         HttpCode: 200
       Protocol: HTTP
-      Port: 80
+      Port: 8080
       UnhealthyThresholdCount: 2
       VpcId: !Ref myVpcId
 
-  
   myListener:
     Type: AWS::ElasticLoadBalancingV2::Listener
     Properties:
-      Port: 8080
+      Port: 8000
       Protocol: HTTP
       DefaultActions:
         - Type: "forward"
@@ -118,11 +114,15 @@ Resources:
   myAutoScalingGroup:
     Type: AWS::AutoScaling::AutoScalingGroup
     Properties:
-      DesiredCapacity: 1
+      DesiredCapacity: 3
       LaunchConfigurationName:
         Ref: "myLaunchConfig"
       MinSize: 0
-      MaxSize: 1
+      MaxSize: 5
       VPCZoneIdentifier: !Ref Subnets
       TargetGroupARNs: 
         - !Ref myTargetGroup
+
+Outputs:
+  AutoscalingGroupName:
+    Value: !Ref myAutoScalingGroup
